@@ -53,7 +53,32 @@
 #define OPENSSL_RAW_DATA 1
 #define OPENSSL_ZERO_PADDING 2
 
+#define X_ENCRYPT_KEY "oScGU3fj8m/tDCyvsbEhwI91M1FcwvQqWuFpPoDHlFk="
+#define X_ENCRYPT_KEY_LEN strlen(X_ENCRYPT_KEY)
+#define X_ENCRYPT_IV "w2wJCnctEG09danPPI7SxQ=="
+#define X_ENCRYPT_IV_LEN strlen(X_ENCRYPT_IV)
+#define X_ENCRYPT_METHOD "aes-256-cbc"
+#define X_ENCRYPT_OPTION 1
+
+
 ZEND_DECLARE_MODULE_GLOBALS(myext)
+
+
+//函数前置声明
+PHP_FUNCTION(xencrypt_v2);
+PHP_FUNCTION(xdecrypt_v2);
+PHP_FUNCTION(xencrypt_error);
+
+//参数配置
+ZEND_BEGIN_ARG_INFO_EX(arginfo_xencrypt_v2, 0, 0, 1)
+    ZEND_ARG_INFO(0, data)
+    ZEND_ARG_INFO(0, options)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_xdecrypt_v2, 0, 0, 1)
+    ZEND_ARG_INFO(0, data)
+    ZEND_ARG_INFO(0, options)
+ZEND_END_ARG_INFO()
 
 /* True global resources - no need for thread safety here */
 static int le_myext;
@@ -127,6 +152,10 @@ PHP_GINIT_FUNCTION(myext)
 	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 	myext_globals->errors = NULL;
+    
+    myext_globals->method = X_ENCRYPT_METHOD;
+    myext_globals->key = php_base64_decode((unsigned char*)X_ENCRYPT_KEY, X_ENCRYPT_KEY_LEN);
+    myext_globals->iv  = php_base64_decode((unsigned char*)X_ENCRYPT_IV, X_ENCRYPT_IV_LEN);
 }
 /* }}} */
 
@@ -137,6 +166,12 @@ PHP_GSHUTDOWN_FUNCTION(myext)
 	if (myext_globals->errors) {
 		pefree(myext_globals->errors, 1);
 	}
+    if (myext_globals->key) {
+        zend_string_release(myext_globals->key);
+    }
+    if (myext_globals->iv) {
+        zend_string_release(myext_globals->iv);
+    }
 }
 /* }}} */
 
@@ -195,13 +230,14 @@ PHP_MINFO_FUNCTION(myext)
  */
 const zend_function_entry myext_functions[] = {
 	PHP_FE(confirm_myext_compiled,	NULL)		/* For testing, remove later. */
-        PHP_FE(helloWorld, NULL)
+    PHP_FE(helloWorld, NULL)
 
-        PHP_FE(xencrypt, NULL)
-        PHP_FE(xdecrypt, NULL)
+    PHP_FE(xencrypt, NULL)
+    PHP_FE(xdecrypt, NULL)
 
-	PHP_FE(xencrypt_v2, NULL)
-	PHP_FE(xdecrypt_v2, NULL)
+	PHP_FE(xencrypt_v2, arginfo_xencrypt_v2)
+	PHP_FE(xdecrypt_v2, arginfo_xdecrypt_v2)
+    PHP_FE(xencrypt_error, NULL)
 	PHP_FE_END	/* Must be the last line in myext_functions[] */
 };
 /* }}} */
@@ -256,10 +292,6 @@ PHP_FUNCTION(helloWorld) {
 /*
  * encrypt
  */
-char *g_key = "oScGU3fj8m/tDCyvsbEhwI91M1FcwvQqWuFpPoDHlFk=";
-char *g_iv = "w2wJCnctEG09danPPI7SxQ==";
-char *g_method = "aes-256-cbc";
-int g_option = 1;
 PHP_FUNCTION(xencrypt) {
 	char *encodeStr = NULL;
 	int encodeStrLen, len;
@@ -280,14 +312,14 @@ PHP_FUNCTION(xencrypt) {
 	zval params[5];
 
 	zval keyVal, ivVal;
-	ZVAL_STRINGL(&keyVal, g_key, strlen(g_key));
-	ZVAL_STRINGL(&ivVal, g_iv, strlen(g_iv));
+	ZVAL_STRINGL(&keyVal, X_ENCRYPT_KEY, X_ENCRYPT_KEY_LEN);
+	ZVAL_STRINGL(&ivVal, X_ENCRYPT_IV, X_ENCRYPT_IV_LEN);
       
 
-        ZVAL_STRINGL(&params[0], encodeStr, encodeStrLen);
-	ZVAL_STRINGL(&params[1], g_method, strlen(g_method));
+    ZVAL_STRINGL(&params[0], encodeStr, encodeStrLen);
+	ZVAL_STRINGL(&params[1], X_ENCRYPT_METHOD, strlen(X_ENCRYPT_METHOD));
 	call_user_function(EG(function_table), NULL, &base64_decode_func, &params[2], 1, &keyVal TSRMLS_CC);
-	ZVAL_LONG(&params[3], g_option);
+	ZVAL_LONG(&params[3], X_ENCRYPT_OPTION);
 	call_user_function(EG(function_table), NULL, &base64_decode_func, &params[4], 1, &ivVal TSRMLS_CC);	
 
         //openssl_encrypt($data, 'aes-256-cbc', base64_decode($key), OPENSSL_RAW_DATA, base64_decode($iv));
@@ -303,8 +335,8 @@ PHP_FUNCTION(xdecrypt) {
 		return ;
 	} 
         
-        char *func_name;
-        zval base64_decode_func, openssl_decrypt_func;
+    char *func_name;
+    zval base64_decode_func, openssl_decrypt_func;
 
 	func_name = "base64_decode";
 	ZVAL_STRINGL(&base64_decode_func, func_name, strlen(func_name));		
@@ -312,15 +344,15 @@ PHP_FUNCTION(xdecrypt) {
 	ZVAL_STRINGL(&openssl_decrypt_func, func_name, strlen(func_name));
       
 	zval params[5];
-        zval keyVal, ivVal;
-	ZVAL_STRINGL(&keyVal, g_key, strlen(g_key));
-	ZVAL_STRINGL(&ivVal, g_iv, strlen(g_iv));
+    zval keyVal, ivVal;
+	ZVAL_STRINGL(&keyVal, X_ENCRYPT_KEY, X_ENCRYPT_KEY_LEN);
+	ZVAL_STRINGL(&ivVal, X_ENCRYPT_IV, X_ENCRYPT_IV_LEN);
         
 	//openssl_decrypt($encrypted, 'aes-256-cbc', base64_decode($key), OPENSSL_RAW_DATA, base64_decode($iv));
         ZVAL_STRINGL(&params[0], rawStr, rawStrLen);
-	ZVAL_STRINGL(&params[1], g_method, strlen(g_method));
+	ZVAL_STRINGL(&params[1], X_ENCRYPT_METHOD, strlen(X_ENCRYPT_METHOD));
 	call_user_function(EG(function_table), NULL, &base64_decode_func, &params[2], 1, &keyVal TSRMLS_CC);
-	ZVAL_LONG(&params[3], g_option);	
+	ZVAL_LONG(&params[3], X_ENCRYPT_OPTION);	
 	call_user_function(EG(function_table), NULL, &base64_decode_func, &params[4], 1, &ivVal TSRMLS_CC);
  
         zval retVal;
@@ -548,9 +580,9 @@ static int php_openssl_cipher_update(const EVP_CIPHER *cipher_type,
 //使用c方法实现
 PHP_FUNCTION(xencrypt_v2) {
         zend_long options = 0, tag_len = 16;
-	char *data, *method, *password, *iv = "", *aad = "";
+	char *data,  *password, *iv = "", *aad = "";
 	zval *tag = NULL;
-	size_t data_len, method_len, password_len, iv_len = 0, aad_len = 0;
+	size_t data_len,  password_len, iv_len = 0, aad_len = 0;
 	const EVP_CIPHER *cipher_type;
 	EVP_CIPHER_CTX *cipher_ctx;
 	struct php_openssl_cipher_mode mode;
@@ -567,7 +599,7 @@ PHP_FUNCTION(xencrypt_v2) {
 	//PHP_OPENSSL_CHECK_SIZE_T_TO_INT(aad_len, aad);
 	//PHP_OPENSSL_CHECK_LONG_TO_INT(tag_len, tag_len);
 
-	cipher_type = EVP_get_cipherbyname(g_method);
+	cipher_type = EVP_get_cipherbyname(X_ENCRYPT_METHOD);
 	if (!cipher_type) {
 		php_error_docref(NULL, E_WARNING, "Unknown cipher algorithm");
 		RETURN_FALSE;
@@ -580,14 +612,10 @@ PHP_FUNCTION(xencrypt_v2) {
 	}
 	php_openssl_load_cipher_mode(&mode, cipher_type);
 
-	zend_string *key_buf=NULL, *iv_buf=NULL;
-
-	key_buf = php_base64_decode((unsigned char*)g_key, strlen(g_key));
-	iv_buf = php_base64_decode((unsigned char*)g_iv, strlen(g_iv));
-	password = ZSTR_VAL(key_buf);
-	password_len = ZSTR_LEN(key_buf);
-	iv = ZSTR_VAL(iv_buf);
-	iv_len = ZSTR_LEN(iv_buf);
+	password = ZSTR_VAL(MYEXT_G(key)); 
+	password_len = ZSTR_LEN(MYEXT_G(key));
+	iv = ZSTR_VAL(MYEXT_G(iv)); 
+	iv_len = ZSTR_LEN(MYEXT_G(iv)); 
 
 	if (php_openssl_cipher_init(cipher_type, cipher_ctx, &mode,
 				&password, &password_len, &free_password,
@@ -639,13 +667,6 @@ PHP_FUNCTION(xencrypt_v2) {
 		RETVAL_FALSE;
 	}
 
-
-	if(key_buf) {
-	    zend_string_release(key_buf);
-	}
-	if(iv_buf) {
-	   zend_string_release(iv_buf);
-	}
 	if (free_password) {
 		efree(password);
 	}
@@ -660,7 +681,7 @@ PHP_FUNCTION(xencrypt_v2) {
 PHP_FUNCTION(xdecrypt_v2)
 {
 	zend_long options = 0;
-	char *data, *method, *password, *iv = "", *tag = NULL, *aad = "";
+	char *data,  *password, *iv = "", *tag = NULL, *aad = "";
 	size_t data_len,  password_len, iv_len = 0, tag_len = 0, aad_len = 0;
 	const EVP_CIPHER *cipher_type;
 	EVP_CIPHER_CTX *cipher_ctx;
@@ -679,8 +700,7 @@ PHP_FUNCTION(xdecrypt_v2)
 	//PHP_OPENSSL_CHECK_SIZE_T_TO_INT(aad_len, aad);
 	//PHP_OPENSSL_CHECK_SIZE_T_TO_INT(tag_len, tag);
 
-	method = g_method;
-	cipher_type = EVP_get_cipherbyname(method);
+	cipher_type = EVP_get_cipherbyname(X_ENCRYPT_METHOD);
 	if (!cipher_type) {
 		php_error_docref(NULL, E_WARNING, "Unknown cipher algorithm");
 		RETURN_FALSE;
@@ -705,14 +725,11 @@ PHP_FUNCTION(xdecrypt_v2)
 		data = ZSTR_VAL(base64_str);
 	}
 
-	zend_string *key_buf=NULL, *iv_buf=NULL;
-        key_buf = php_base64_decode((unsigned char*)g_key, strlen(g_key));
-	iv_buf = php_base64_decode((unsigned char*)g_iv, strlen(g_iv));
 
-	password = ZSTR_VAL(key_buf);
-	password_len = ZSTR_LEN(key_buf);
-	iv = ZSTR_VAL(iv_buf);
-	iv_len = ZSTR_LEN(iv_buf);
+	password = ZSTR_VAL(MYEXT_G(key)); 
+	password_len = ZSTR_LEN(MYEXT_G(key)); 
+	iv =  ZSTR_VAL(MYEXT_G(iv));
+	iv_len = ZSTR_LEN(MYEXT_G(iv)); 
 
 	if (php_openssl_cipher_init(cipher_type, cipher_ctx, &mode,
 				&password, &password_len, &free_password,
@@ -732,14 +749,6 @@ PHP_FUNCTION(xdecrypt_v2)
 		RETVAL_FALSE;
 	}
 	
-	if(key_buf) {
-	   zend_string_release(key_buf);
-	}
-
-	if(iv_buf) {
-	    zend_string_release(iv_buf);
-	}
-
 	if (free_password) {
 		efree(password);
 	}
@@ -751,5 +760,35 @@ PHP_FUNCTION(xdecrypt_v2)
 	}
 	EVP_CIPHER_CTX_cleanup(cipher_ctx);
 	EVP_CIPHER_CTX_free(cipher_ctx);
+}
+/* }}} */
+
+
+/* {{{ proto mixed openssl_error_string(void)
+   Returns a description of the last error, and alters the index of the error messages. Returns false when the are no more messages */
+PHP_FUNCTION(xencrypt_error)
+{
+    char buf[256];
+    unsigned long val;
+
+    if (zend_parse_parameters_none() == FAILURE) {
+        return;
+    }
+
+    php_openssl_store_errors();
+
+    if (MYEXT_G(errors) == NULL || MYEXT_G(errors)->top == MYEXT_G(errors)->bottom) {
+        RETURN_FALSE;
+    }
+
+    MYEXT_G(errors)->bottom = (MYEXT_G(errors)->bottom + 1) % ERR_NUM_ERRORS;
+    val = MYEXT_G(errors)->buffer[MYEXT_G(errors)->bottom];
+
+    if (val) {
+        ERR_error_string_n(val, buf, 256);
+        RETURN_STRING(buf);
+    } else {
+        RETURN_FALSE;
+    }
 }
 /* }}} */

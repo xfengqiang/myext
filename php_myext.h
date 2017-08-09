@@ -12,7 +12,7 @@
   | obtain it through the world-wide-web, please send a note to          |
   | license@php.net so we can mail you a copy immediately.               |
   +----------------------------------------------------------------------+
-  | Author:                                                              |
+  | Author: fankxu                                                       |
   +----------------------------------------------------------------------+
 */
 
@@ -55,6 +55,9 @@ struct php_openssl_errors {
 
 ZEND_BEGIN_MODULE_GLOBALS(myext)
      struct php_openssl_errors *errors;
+     zend_string *key;
+     zend_string *iv;
+     char *method;
 ZEND_END_MODULE_GLOBALS(myext)
 
 
