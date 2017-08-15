@@ -80,6 +80,93 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_xdecrypt_v2, 0, 0, 1)
     ZEND_ARG_INFO(0, options)
 ZEND_END_ARG_INFO()
 
+/* {{{ base64 tables */
+static const char base64_pad = '=';
+static const short base64_reverse_table[256] = {
+        -2, -2, -2, -2, -2, -2, -2, -2, -2, -1, -1, -2, -2, -1, -2, -2,
+        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
+        -1, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, 62, -2, -2, -2, 63,
+        52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -2, -2, -2, -2, -2, -2,
+        -2,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
+        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -2, -2, -2, -2, -2,
+        -2, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+        41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -2, -2, -2, -2, -2,
+        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
+        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
+        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
+        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
+        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
+        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
+        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2,
+        -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2
+};
+/* }}} */
+
+PHPAPI zend_string *base64_decode_ex(const unsigned char *str, size_t length) /* {{{ */
+{
+    const unsigned char *current = str;
+    int ch, i = 0, j = 0, padding = 0;
+    zend_string *result;
+
+    result = zend_string_alloc(length, 1);
+
+    /* run through the whole string, converting as we go */
+    while (length-- > 0) {
+        ch = *current++;
+        if (ch == base64_pad) {
+            padding++;
+            continue;
+        }
+
+        ch = base64_reverse_table[ch];
+        /* skip whitespace */
+        if (ch == -1) {
+            continue;
+        }
+        /* fail on bad characters or if any data follows padding */
+        if (ch == -2 || padding) {
+            goto fail;
+        }
+
+        switch(i % 4) {
+            case 0:
+                ZSTR_VAL(result)[j] = ch << 2;
+                break;
+            case 1:
+                ZSTR_VAL(result)[j++] |= ch >> 4;
+                ZSTR_VAL(result)[j] = (ch & 0x0f) << 4;
+                break;
+            case 2:
+                ZSTR_VAL(result)[j++] |= ch >>2;
+                ZSTR_VAL(result)[j] = (ch & 0x03) << 6;
+                break;
+            case 3:
+                ZSTR_VAL(result)[j++] |= ch;
+                break;
+        }
+        i++;
+    }
+    /* fail if the input is truncated (only one char in last group) */
+    if (i % 4 == 1) {
+        goto fail;
+    }
+    /* fail if the padding length is wrong (not VV==, VVV=), but accept zero padding
+     * RFC 4648: "In some circumstances, the use of padding [--] is not required" */
+    if ( padding && (padding > 2 || (i + padding) % 4 != 0)) {
+        goto fail;
+    }
+
+    ZSTR_LEN(result) = j;
+    ZSTR_VAL(result)[ZSTR_LEN(result)] = '\0';
+
+    return result;
+
+    fail:
+    zend_string_free(result);
+    return NULL;
+}
+/* }}} */
+
 /* True global resources - no need for thread safety here */
 static int le_myext;
 
@@ -154,6 +241,9 @@ PHP_GINIT_FUNCTION(myext)
 	myext_globals->errors = NULL;
     
     myext_globals->method = X_ENCRYPT_METHOD;
+//    myext_globals->key = base64_decode_ex((unsigned char*)X_ENCRYPT_KEY, X_ENCRYPT_KEY_LEN);
+//    myext_globals->iv  = base64_decode_ex((unsigned char*)X_ENCRYPT_IV, X_ENCRYPT_IV_LEN);
+
     myext_globals->key = php_base64_decode((unsigned char*)X_ENCRYPT_KEY, X_ENCRYPT_KEY_LEN);
     myext_globals->iv  = php_base64_decode((unsigned char*)X_ENCRYPT_IV, X_ENCRYPT_IV_LEN);
 }
@@ -285,6 +375,7 @@ PHP_FUNCTION(helloWorld) {
 		return ;
 	} 
 
+    //strg[0] = "1";
 	len = spprintf(&strg, 0, "Hello :%s", arg);
 	RETURN_STRINGL(strg, len);
 }
@@ -299,19 +390,21 @@ PHP_FUNCTION(xencrypt) {
 		return ;
 	} 
       
-        zval base64_decode_func;
-        zval openssl_encrypt_func;
+   zval base64_decode_func;
+   zval openssl_encrypt_func;
 	
 	char *func_name="base64_encode";
-        func_name = "base64_decode";
-        ZVAL_STRINGL(&base64_decode_func, func_name, strlen(func_name));
-        func_name = "openssl_encrypt";
+    func_name = "base64_decode";
+    ZVAL_STRINGL(&base64_decode_func, func_name, strlen(func_name));
+    func_name = "openssl_encrypt";
 	ZVAL_STRINGL(&openssl_encrypt_func, func_name, strlen(func_name));
 	
 	
 	zval params[5];
 
-	zval keyVal, ivVal;
+	zval keyVal;
+    zval  ivVal;
+     
 	ZVAL_STRINGL(&keyVal, X_ENCRYPT_KEY, X_ENCRYPT_KEY_LEN);
 	ZVAL_STRINGL(&ivVal, X_ENCRYPT_IV, X_ENCRYPT_IV_LEN);
       
@@ -324,7 +417,7 @@ PHP_FUNCTION(xencrypt) {
 
         //openssl_encrypt($data, 'aes-256-cbc', base64_decode($key), OPENSSL_RAW_DATA, base64_decode($iv));
 	zval retVal;
-        call_user_function(EG(function_table), NULL, &openssl_encrypt_func, &retVal, 5, params);	
+    call_user_function(EG(function_table), NULL, &openssl_encrypt_func, &retVal, 5, params);	
 	RETURN_ZVAL(&retVal, 1, 0);
 }
 
